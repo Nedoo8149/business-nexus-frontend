@@ -1,14 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  Mic, MicOff, Video as VideoIcon, VideoOff, 
-  PhoneOff, ArrowLeft, Shield, User
-} from 'lucide-react';
+import { Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, ArrowLeft, Shield, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../socket'; 
 import AgoraRTC, { ICameraVideoTrack, IMicrophoneAudioTrack, IAgoraRTCClient } from 'agora-rtc-sdk-ng';
 import axios from 'axios';
-import toast from 'react-hot-toast';
 
 const client: IAgoraRTCClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
@@ -21,15 +17,17 @@ export const VideoCallPage: React.FC = () => {
   const location = useLocation();
   const { user } = useAuth();
   
-  // URL Parse Logic (Bulletproof)
   const queryParams = new URLSearchParams(location.search);
-  let rawCallType = queryParams.get('type');
-  const callType = (rawCallType && rawCallType !== 'undefined' && rawCallType !== 'null') ? rawCallType : 'video';
-  
-  // Check if current user is caller or receiver
+  const rawCallType = queryParams.get('type');
+  const callType = (rawCallType === 'audio') ? 'audio' : 'video';
   const userRole = queryParams.get('role') || 'caller'; 
+  
+  const partnerName = queryParams.get('name') || 'User';
+  const rawDp = queryParams.get('dp');
+  const partnerDp = (rawDp && rawDp !== 'undefined' && rawDp !== 'null' && rawDp !== '') 
+    ? rawDp 
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(partnerName)}&background=random&color=fff&size=256`;
 
-  // Fix room mismatch: Hamesha 'room-' hata kar pure ID use karega dono k liye
   const cleanRoomId = roomId?.replace(/^room-/, '') || '';
 
   const localVideoRef = useRef<HTMLDivElement>(null);
@@ -41,13 +39,17 @@ export const VideoCallPage: React.FC = () => {
   const [isCameraOn, setIsCameraOn] = useState(callType === 'video');
   const [isMicOn, setIsMicOn] = useState(true);
   
-  // Receiver hai tou 'Connecting...' show hoga, Caller hai tou 'Ringing...'
+  // 🔥 FIX: Removed strict type, TS will not complain about overlap anymore
   const [callStatus, setCallStatus] = useState<string>(userRole === 'receiver' ? 'Connecting...' : 'Ringing...'); 
   const [statusMessage, setStatusMessage] = useState<string>('');
-  const [callDuration, setCallDuration] = useState<number>(0);
   
-  const [ringingAudio] = useState(new Audio(RINGING_SOUND_URL));
-  const [disconnectAudio] = useState(new Audio(DISCONNECT_SOUND_URL));
+  const [callDuration, setCallDuration] = useState<number>(0);
+  const callDurationRef = useRef(0);
+  
+  const hasEndedRef = useRef(false);
+  
+  const ringingAudio = useRef(new Audio(RINGING_SOUND_URL));
+  const disconnectAudio = useRef(new Audio(DISCONNECT_SOUND_URL));
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -56,32 +58,29 @@ export const VideoCallPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (user?.id) {
-      socket.emit('register', user.id);
-    }
+    if (user?.id) socket.emit('register', user.id);
   }, [user]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>; 
     if (callStatus === 'Connected') {
       interval = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
+        setCallDuration((prev) => {
+          callDurationRef.current = prev + 1;
+          return prev + 1;
+        });
       }, 1000);
     }
     return () => clearInterval(interval);
   }, [callStatus]);
 
-  // --- Timeout & Sound Logic (Only Caller hears ringing) ---
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     if (callStatus === 'Ringing...' || callStatus === 'Connecting...') {
-      // Sirf caller ko ringtone sunao
       if (callStatus === 'Ringing...' && userRole === 'caller') {
-        ringingAudio.loop = true;
-        setTimeout(() => {
-           ringingAudio.play().catch(e => console.log("Audio block fix:", e));
-        }, 300);
+        ringingAudio.current.loop = true;
+        setTimeout(() => { ringingAudio.current.play().catch(() => {}); }, 300);
       }
 
       timeoutId = setTimeout(() => {
@@ -94,15 +93,15 @@ export const VideoCallPage: React.FC = () => {
         }
       }, 30000);
     } else {
-      ringingAudio.pause();
-      ringingAudio.currentTime = 0;
+      ringingAudio.current.pause();
+      ringingAudio.current.currentTime = 0;
     }
 
     return () => {
-      ringingAudio.pause();
+      ringingAudio.current.pause();
       clearTimeout(timeoutId);
     };
-  }, [callStatus, ringingAudio, cleanRoomId, user, userRole]);
+  }, [callStatus, cleanRoomId, user, userRole]);
 
   const isAgoraInitialized = useRef(false);
 
@@ -113,19 +112,16 @@ export const VideoCallPage: React.FC = () => {
 
       try {
         const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-        // Clean room ID backend ko bhejein
         const res = await axios.get(`${BACKEND_URL}/api/agora/token?channelName=${cleanRoomId}`);
         const token = res.data.token;
 
-        client.on('user-joined', () => {
-          setCallStatus('Connected');
-        });
+        client.on('user-joined', () => setCallStatus('Connected'));
 
         client.on('user-published', async (remoteUser, mediaType) => {
           await client.subscribe(remoteUser, mediaType);
           setCallStatus('Connected'); 
 
-          if (mediaType === 'video' && remoteVideoRef.current) {
+          if (mediaType === 'video' && remoteVideoRef.current && callType === 'video') {
             remoteUser.videoTrack?.play(remoteVideoRef.current);
           }
           if (mediaType === 'audio') {
@@ -133,16 +129,11 @@ export const VideoCallPage: React.FC = () => {
           }
         });
 
-        client.on('user-left', () => {
-          handleRemoteEnd('User Disconnected');
-        });
+        client.on('user-left', () => handleRemoteEnd('User Disconnected'));
 
-        const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
-        await client.join(APP_ID, cleanRoomId, token, user?.id || null);
+        await client.join(import.meta.env.VITE_AGORA_APP_ID, cleanRoomId, token, null);
 
-        if (client.remoteUsers.length > 0) {
-           setCallStatus('Connected');
-        }
+        if (client.remoteUsers.length > 0) setCallStatus('Connected');
 
         let audioTrack = null;
         let videoTrack = null;
@@ -150,9 +141,7 @@ export const VideoCallPage: React.FC = () => {
         try {
           audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
           setLocalAudioTrack(audioTrack);
-        } catch (err) {
-          console.error("Mic error:", err);
-        }
+        } catch (err) { console.error("Mic error:", err); }
 
         if (callType === 'video') {
           try {
@@ -162,9 +151,10 @@ export const VideoCallPage: React.FC = () => {
               videoTrack.play(localVideoRef.current);
             }
           } catch (err) {
-            console.error("Camera blocked. Audio only fallback.");
             setIsCameraOn(false);
           }
+        } else {
+          setIsCameraOn(false); 
         }
 
         const tracksToPublish = [];
@@ -174,10 +164,10 @@ export const VideoCallPage: React.FC = () => {
         if (tracksToPublish.length > 0) {
           await client.publish(tracksToPublish);
         }
+        
+        if (userRole === 'receiver') socket.emit('call-accepted', { roomId: cleanRoomId });
 
-      } catch (error) {
-        console.error("Agora Critical Error:", error);
-      }
+      } catch (error) { console.error("Agora Critical Error:", error); }
     };
 
     if (cleanRoomId) initAgora();
@@ -186,11 +176,12 @@ export const VideoCallPage: React.FC = () => {
       socket.on('call-declined', () => handleRemoteEnd('Call Declined'));
       socket.on('call-no-answer', () => handleRemoteEnd('No Answer'));
       socket.on('user-disconnected', () => handleRemoteEnd('User Disconnected'));
+      
       socket.on('active-call-ended', (data) => {
-        if (data && data.roomId === cleanRoomId) {
-          handleRemoteEnd('Call Ended');
-        }
+        if (data && data.roomId === cleanRoomId) handleRemoteEnd('Call Ended');
       });
+
+      socket.on('call-accepted', () => setCallStatus('Connected'));
     };
 
     handleSocketEvents();
@@ -200,18 +191,36 @@ export const VideoCallPage: React.FC = () => {
       socket.off('call-no-answer');
       socket.off('active-call-ended');
       socket.off('user-disconnected');
+      socket.off('call-accepted');
       leaveAgoraCall();
     };
-  }, [cleanRoomId, user, callType]);
+  }, [cleanRoomId, user, callType, userRole]);
 
   const handleRemoteEnd = (msg: string) => {
-    setCallStatus((prev) => {
-      if (prev === 'Ended') return prev; 
-      setStatusMessage(msg);
-      disconnectAudio.play().catch(e => console.log(e));
-      leaveAgoraCall();
-      return 'Ended';
-    });
+    if (hasEndedRef.current) return; 
+    hasEndedRef.current = true;
+
+    setCallStatus('Ended'); 
+    setStatusMessage(msg);
+    disconnectAudio.current.play().catch(e => console.log(e));
+    leaveAgoraCall();
+    
+    if (userRole === 'caller' && user?.id) {
+       let logText = `📞 ${callType === 'audio' ? 'Audio' : 'Video'} Call`;
+       if (msg === 'No Answer') logText = `📞 Missed ${callType === 'audio' ? 'Audio' : 'Video'} Call`;
+       else if (msg === 'Call Declined') logText = `📞 Declined ${callType === 'audio' ? 'Audio' : 'Video'} Call`;
+       else if (msg === 'Call Ended' || msg === 'User Disconnected') logText = `📞 ${callType === 'audio' ? 'Audio' : 'Video'} Call (${formatTime(callDurationRef.current)})`;
+
+       const partnerId = cleanRoomId.split('-').find(id => id !== user.id);
+       if (partnerId) {
+           socket.emit("send_message", {
+               conversationId: cleanRoomId,
+               sender: user.id,
+               receiver: partnerId,
+               text: logText
+           });
+       }
+    }
   };
 
   const leaveAgoraCall = async () => {
@@ -249,7 +258,6 @@ export const VideoCallPage: React.FC = () => {
   return (
     <div className="flex flex-col h-[90vh] bg-slate-50 rounded-3xl overflow-hidden relative shadow-md border border-slate-200 animate-fade-in font-sans">
       
-      {/* TOP HEADER BAR */}
       <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-start z-40 pointer-events-none">
         <div className="flex flex-col gap-2">
            <div className="bg-white/90 backdrop-blur-md border border-slate-200 px-4 py-2 rounded-full flex items-center gap-2 pointer-events-auto shadow-sm">
@@ -266,43 +274,28 @@ export const VideoCallPage: React.FC = () => {
         )}
       </div>
 
-      {/* REMOTE USER AREA */}
       <div className="flex-1 w-full h-full relative flex items-center justify-center bg-slate-100">
         
         <div ref={remoteVideoRef} className={`w-full h-full object-cover ${callType === 'audio' ? 'hidden' : 'block'}`}></div> 
         
         {(callType === 'audio' || callStatus !== 'Connected') && callStatus !== 'Ended' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 z-10">
-            <div className="w-32 h-32 bg-primary-100 rounded-full flex items-center justify-center shadow-inner mb-6">
-               <User size={60} className="text-primary-600" />
-            </div>
-            {callStatus === 'Connected' && <p className="text-slate-800 text-2xl font-medium">Audio Call Connected</p>}
+            <img 
+              src={partnerDp} 
+              alt={partnerName} 
+              onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(partnerName)}&background=random&color=fff&size=256`; }}
+              className="w-36 h-36 rounded-full border-4 border-white shadow-xl mb-6 object-cover bg-white" 
+            />
+            
+            <h2 className="text-3xl font-bold text-slate-800 mb-2">{partnerName}</h2>
+            {callStatus === 'Connected' ? (
+              <p className="text-slate-500 text-lg font-medium">Audio Call Connected</p>
+            ) : (
+              <p className="text-slate-500 text-lg font-medium animate-pulse">{callStatus}</p>
+            )}
           </div>
         )}
         
-        {/* Calling/Connecting Screen */}
-        {(callStatus === 'Ringing...' || callStatus === 'Connecting...') && (
-          <div className="absolute inset-0 bg-slate-50/95 flex flex-col items-center justify-center backdrop-blur-md z-20">
-             <div className="relative mb-8 flex items-center justify-center">
-                <div className="w-28 h-28 bg-white rounded-full flex items-center justify-center z-10 relative shadow-lg border border-slate-100">
-                  <User size={48} className="text-slate-400" />
-                </div>
-                {callStatus === 'Ringing...' && (
-                  <>
-                    <div className="absolute inset-0 bg-primary-200 rounded-full animate-ping opacity-40 scale-[1.5]"></div>
-                    <div className="absolute inset-0 bg-primary-100 rounded-full animate-ping opacity-30 scale-[2.2]" style={{ animationDelay: '0.2s' }}></div>
-                  </>
-                )}
-             </div>
-             <p className="text-slate-800 text-3xl font-medium mb-2 tracking-wide">
-               {callStatus === 'Ringing...' ? 'Calling...' : 'Connecting...'}
-             </p>
-             <p className="text-slate-500 text-sm font-medium">
-               {callStatus === 'Ringing...' ? 'Waiting for response...' : 'Securing connection...'}
-             </p>
-          </div>
-        )}
-
         {callStatus === 'Ended' && (
           <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center z-50">
              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
@@ -316,7 +309,6 @@ export const VideoCallPage: React.FC = () => {
         )}
       </div>
 
-      {/* LOCAL VIDEO */}
       {callStatus !== 'Ended' && callType === 'video' && (
         <div className="absolute top-24 right-6 w-36 md:w-56 aspect-[3/4] md:aspect-video bg-slate-900 rounded-2xl overflow-hidden border-2 border-white shadow-xl z-40 transition-all hover:scale-105">
           <div ref={localVideoRef} className={`w-full h-full object-cover mirror ${!isCameraOn && 'hidden'}`}></div>
@@ -334,10 +326,8 @@ export const VideoCallPage: React.FC = () => {
         </div>
       )}
 
-      {/* BOTTOM CONTROLS */}
       {callStatus !== 'Ended' && (
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center gap-3 md:gap-4 z-40 bg-white px-6 py-4 rounded-full shadow-lg border border-slate-200">
-          
           <button onClick={toggleMic} className={`p-3.5 rounded-full flex items-center justify-center transition-all ${isMicOn ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
             {isMicOn ? <Mic size={22} /> : <MicOff size={22} />}
           </button>
