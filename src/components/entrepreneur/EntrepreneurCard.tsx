@@ -57,11 +57,17 @@ export const EntrepreneurCard: React.FC<EntrepreneurCardProps> = ({
     };
   }, [entrepreneur.id]);
   
-  const handleViewProfile = () => navigate(`/profile/entrepreneur/${entrepreneur.id}`);
-  const handleMessage = (e: React.MouseEvent) => {
-    e.stopPropagation(); 
-    navigate(`/chat/${entrepreneur.id}`);
-  };
+const handleViewProfile = () => {
+  // TypeScript ko bypass karne ke liye 'as any' laga diya
+  const targetId = (entrepreneur as any)._id || entrepreneur.id;
+  navigate(`/profile/entrepreneur/${targetId}`);
+};
+
+const handleMessage = (e: React.MouseEvent) => {
+  e.stopPropagation(); 
+  const targetId = (entrepreneur as any)._id || entrepreneur.id;
+  navigate(`/chat/${targetId}`);
+};
   
   return (
     <Card hoverable className="transition-all duration-300 h-full flex flex-col" onClick={handleViewProfile}>

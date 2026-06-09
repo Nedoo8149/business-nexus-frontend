@@ -10,6 +10,12 @@ export const registerUser = async (formData: any) => {
   return response.data;
 };
 
+// YEH MISSING THA: OTP Verify karne ki API
+export const verifyOTPUser = async (data: { userId: string, otp: string }) => {
+  const response = await API.post('/auth/verify-otp', data);
+  return response.data;
+};
+
 export const getProfile = async () => {
   const response = await API.get('/profile');
   return response.data;
@@ -19,7 +25,10 @@ export const updateProfile = async (profileData: any) => {
   const response = await API.put('/profile', profileData);
   return response.data;
 };
+
+// ==========================================
 // Meetings ki APIs
+// ==========================================
 export const scheduleMeeting = async (meetingData: any) => {
   const response = await API.post('/meetings/schedule', meetingData);
   return response.data;

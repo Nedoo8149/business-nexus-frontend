@@ -3,6 +3,7 @@ import { User, UserRole, AuthContextType } from '../types';
 import toast from 'react-hot-toast';
 import { loginUser as apiLogin, registerUser as apiRegister } from '../authService';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const USER_STORAGE_KEY = 'business_nexus_user';
@@ -13,10 +14,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🔥 AUTO-SYNC FUNCTION: Yeh chup chaap DB se asli tasveer layega
+  const syncFreshUserData = async (userId: string, currentLocalUser: any) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}`);
+      if (res.ok) {
+        const dbUser = await res.json();
+        const freshUser = {
+          ...currentLocalUser,
+          ...dbUser, // DB se aanay wala data (including avatarUrl) puray kachre ko overwrite kar dega
+          id: dbUser._id || dbUser.id,
+          avatarUrl: dbUser.avatarUrl 
+        };
+        setUser(freshUser);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(freshUser));
+      }
+    } catch (error) {
+      console.log("Background sync failed, using local data.");
+    }
+  };
+
   useEffect(() => {
     const storedUser = localStorage.getItem(USER_STORAGE_KEY);
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser); // Pehle UI dikhao taake website fast load ho
+
+      // Background mein DB se fresh data fetch karlo (DP drop issue hamesha ke liye solved)
+      if (parsedUser.id || parsedUser._id) {
+        syncFreshUserData(parsedUser.id || parsedUser._id, parsedUser);
+      }
     }
     setIsLoading(false);
   }, []);
@@ -27,17 +54,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await apiLogin({ email, password, role });
       const { user: loggedInUser, token } = data;
       
-      // FIX: MongoDB ki _id ko frontend ki id k barabar kr diya
+      const userName = loggedInUser?.name || email.split('@')[0];
+      
       const formattedUser = {
         ...loggedInUser,
-        id: loggedInUser._id || loggedInUser.id, 
-        name: loggedInUser.name || email.split('@')[0],
-        avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(loggedInUser.name || email.split('@')[0])}&background=random`
+        id: loggedInUser?._id || loggedInUser?.id || data.userId, 
+        name: userName,
+        avatarUrl: loggedInUser?.avatarUrl 
       };
       
       setUser(formattedUser);
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(formattedUser));
-      localStorage.setItem(TOKEN_KEY, token); 
+      if (token) localStorage.setItem(TOKEN_KEY, token); 
+
+      // Login hote hi DB se verify karwa lo
+      if (formattedUser.id) {
+        syncFreshUserData(formattedUser.id, formattedUser);
+      }
       
       toast.success('Successfully logged in!');
     } catch (error: any) {
@@ -55,17 +88,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await apiRegister({ email, password, role });
       const { user: newUser, token } = data;
       
-      // FIX: MongoDB ki _id ko frontend ki id k barabar kr diya
       const formattedUser = {
         ...newUser,
         id: newUser._id || newUser.id,
         name: name,
-        avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+        avatarUrl: newUser.avatarUrl 
       };
       
       setUser(formattedUser);
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(formattedUser));
-      localStorage.setItem(TOKEN_KEY, token);
+      if (token) localStorage.setItem(TOKEN_KEY, token);
       
       toast.success('Account created successfully!');
     } catch (error: any) {
@@ -113,14 +145,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = async (userId: string, updates: Partial<User>): Promise<void> => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
       if (user && user.id === userId) {
-        const updatedUser = { ...user, ...updates };
+        const updatedUser = { 
+          ...user, 
+          ...updates,
+          id: updates.id || user.id
+        } as User;
+        
         setUser(updatedUser);
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+        console.log("✅ Context & LocalStorage updated:", updatedUser);
       }
-      toast.success('Profile updated successfully');
     } catch (error) {
+      console.error("Failed to update profile in context:", error);
       toast.error((error as Error).message);
       throw error;
     }

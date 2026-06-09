@@ -3,16 +3,16 @@ import React from 'react';
 export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
 interface AvatarProps {
-  src: string;
-  alt: string;
+  src?: string | null; // Isay optional kar diya taake crash na ho
+  alt?: string;
   size?: AvatarSize;
   className?: string;
-  status?: 'online' | 'offline' | 'away' | 'busy';
+  status?: 'online' | 'offline' | 'away' | 'busy' | null;
 }
 
 export const Avatar: React.FC<AvatarProps> = ({
   src,
-  alt,
+  alt = 'User',
   size = 'md',
   className = '',
   status,
@@ -26,7 +26,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   };
   
   const statusColors = {
-    online: 'bg-success-500',
+    online: 'bg-success-500', // Make sure aapke tailwind config mein success-500 ho, ya 'bg-green-500' likh dein
     offline: 'bg-gray-400',
     away: 'bg-warning-500',
     busy: 'bg-error-500',
@@ -39,15 +39,29 @@ export const Avatar: React.FC<AvatarProps> = ({
     lg: 'h-3 w-3',
     xl: 'h-4 w-4',
   };
+
+  // 🔥 ENTERPRISE FIX: Environment variable se Base URL uthana
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+  let finalSrc = src;
+
+  // Agar path DB se /uploads ki shakal mein aa raha hai, tou aagay backend ka link lagao
+  if (finalSrc && finalSrc.startsWith('/')) {
+    finalSrc = `${BACKEND_URL}${finalSrc}`;
+  }
+
+  // Agar DB mein link nahi hai (empty string ya null), toh initial fallback lagao
+  if (!finalSrc || finalSrc.trim() === '') {
+    finalSrc = `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=random`;
+  }
   
   return (
     <div className={`relative inline-block ${className}`}>
       <img
-        src={src}
+        src={finalSrc}
         alt={alt}
-        className={`rounded-full object-cover ${sizeClasses[size]}`}
+        className={`rounded-full object-cover bg-gray-100 ${sizeClasses[size]}`}
         onError={(e) => {
-          // Fallback to initials if image fails to load
+          // Fallback to initials if original image fails to load
           const target = e.target as HTMLImageElement;
           target.onerror = null;
           target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=random`;

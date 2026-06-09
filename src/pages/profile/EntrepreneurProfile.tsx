@@ -252,7 +252,7 @@ export const EntrepreneurProfile: React.FC = () => {
             {!isCurrentUser && isInvestor && (
               <div className="grid grid-cols-2 gap-3 min-w-[260px] sm:min-w-[300px]">
                 {/* Row 1, Col 1: Message */}
-                <Link to={`/chat/${entrepreneur.id}`} className="block">
+                <Link to={`/chat/${entrepreneur._id || entrepreneur.id}`} className="block">
                   <Button
                     variant="outline"
                     leftIcon={<MessageCircle size={16} />}
@@ -296,15 +296,15 @@ export const EntrepreneurProfile: React.FC = () => {
 
             {/* Non-investor viewing: only Message */}
             {!isCurrentUser && !isInvestor && (
-              <Link to={`/chat/${entrepreneur.id}`}>
-                <Button
-                  variant="outline"
-                  leftIcon={<MessageCircle size={18} />}
-                >
-                  Message
-                </Button>
-              </Link>
-            )}
+              <Link to={`/chat/${entrepreneur._id || entrepreneur.id}`}>
+              <Button
+                variant="outline"
+                leftIcon={<MessageCircle size={18} />}
+              >
+                Message
+              </Button>
+            </Link>
+                        )}
 
             {/* Current user: Edit Profile */}
             {isCurrentUser && (

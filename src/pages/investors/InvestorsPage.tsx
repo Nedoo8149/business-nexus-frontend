@@ -28,7 +28,7 @@ export const InvestorsPage: React.FC = () => {
           bio: u.bio || "Looking for great investment opportunities.",
           investmentStage: u.investmentStage || ["Seed", "Series A"],
           investmentInterests: u.investmentInterests || ["Technology", "AI"],
-          avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=random`
+          avatarUrl: u.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=random`
         }));
         setRealInvestors(formattedUsers);
       } catch (error) {

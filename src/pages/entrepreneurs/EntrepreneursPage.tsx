@@ -30,7 +30,8 @@ export const EntrepreneursPage: React.FC = () => {
           industry: u.industry || "Technology",
           fundingNeeded: u.fundingNeeded || "$100K",
           pitchSummary: u.pitchSummary || "Solving complex market problems with innovative solutions.",
-          avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=random`
+          avatarUrl: u.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=random`
+
         }));
         setRealEntrepreneurs(formattedUsers);
       } catch (error) {
